@@ -109,7 +109,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.0
 
 ```bash
 # 导入容器后，在 NAS 上执行（只读检查，不会改任何配置）
-docker exec -it openclaw-workbench python /app/scripts/check_openclaw.py
+docker exec -it workbench python /app/scripts/check_openclaw.py
 ```
 
 它会明确告诉你卡在哪一步、以及该做什么。**需要你手动开启什么，以及为什么工作台不替你改**，都写在 **[docs/OPENCLAW-API.md](docs/OPENCLAW-API.md)**。

@@ -88,7 +88,7 @@ OpenClaw 的 Gateway 提供 HTTP 接口，但它**默认是关闭的**。
 导入容器后，在 NAS 上执行：
 
 ```bash
-docker exec -it openclaw-workbench python /app/scripts/check_openclaw.py
+docker exec -it workbench python /app/scripts/check_openclaw.py
 ```
 
 这个脚本**只读**：它只发一次极短的测试请求，不修改 OpenClaw 的任何配置，不写任何文件。

@@ -102,25 +102,34 @@ Docker → **容器** → **添加** → 选择刚导入的镜像。
 
 | 项 | 填什么 |
 |---|---|
-| 容器名称 | `openclaw-workbench` |
+| 容器名称 | `workbench` |
 | 重启策略 | `unless-stopped`（或勾选"开机自启"） |
 
-### 文件夹路径（3 个挂载）
+### 文件夹路径（只挂这两个）
 
 | 极空间上的路径 | 装载路径 | 权限 |
 |---|---|---|
 | `<你的路径>/literature` | `/data/literature` | 读写 |
 | `<你的路径>/life_notes` | `/data/life_notes` | 读写 |
+
+**只挂这两个。装载路径必须逐字一致，大小写敏感。**
+
+这两个目录之外的东西，容器在内核层面就看不到——这是最硬的一道边界，
+比任何代码检查都可靠。
+
+#### （可选）想免重建就能调提示词，再加一个只读挂载
+
+以后调提示词时，如果不想走"交叉构建 → 传输 → 导入镜像"那一圈，
+可以加第三个只读挂载：
+
+| 极空间上的路径 | 装载路径 | 权限 |
+|---|---|---|
 | `<你的路径>/openclaw-workbench/prompts` | `/app/prompts` | **只读** |
 
-**装载路径必须逐字一致，大小写敏感。**
+把仓库里的 `prompts/` 文件夹上传到 NAS 上某处即可，改完重启容器就生效。
 
-第 3 个是提示词目录（把仓库里的 `prompts/` 文件夹上传到 NAS 上某个位置即可）。
-它让你以后改提示词只需编辑文本 + 重启容器，**不用重建镜像**。
-不想挂也行，那就用镜像里自带的版本。
-
-> 关于第 3 个挂载的一个细节：它以只读方式挂载，所以即使容器被攻破，
-> 也改不了提示词。这个设计是有意的。
+它以**只读**方式挂载，所以即使容器被攻破也改不了提示词——这个设计是有意的。
+不挂也没有影响：提示词已经打进镜像，用的是构建时那一版。
 
 ### 端口
 
@@ -211,7 +220,7 @@ AI 服务令牌：已配置（长度 64）
 ### 隔离性验证（这几条最重要）
 
 - [ ] 进容器看 `ls /data` → **只有 `literature` 和 `life_notes`**
-      （Docker → 容器 → 终端，或 `docker exec -it openclaw-workbench ls /data`）
+      （Docker → 容器 → 终端，或 `docker exec -it workbench ls /data`）
 - [ ] 在容器里 `ls /`、`ls /etc`、`ls /root` → 看到的是**容器自己的**文件系统，
       不是你 NAS 上的目录。NAS 的其他目录在内核层面就不可见
 - [ ] 把 `OPENCLAW_TOKEN` 临时改错再分析 → 提示"AI 服务暂时不可用"，
@@ -252,7 +261,7 @@ ls -l | head
 ### AI 服务连通性
 
 ```bash
-docker exec -it openclaw-workbench python /app/scripts/check_openclaw.py
+docker exec -it workbench python /app/scripts/check_openclaw.py
 ```
 
 如果没通，它会告诉你差什么。**需要你在 OpenClaw 侧开启的东西都在

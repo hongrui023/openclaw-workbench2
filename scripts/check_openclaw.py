@@ -11,7 +11,7 @@
 用法：
 
     # 在 NAS 上（容器内执行，用的是容器里那份配置）
-    docker exec -it openclaw-workbench python /app/scripts/check_openclaw.py
+    docker exec -it workbench python /app/scripts/check_openclaw.py
 
     # 在开发机上（.env 或环境变量已设置）
     python scripts/check_openclaw.py
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     # 输出既打到终端，也可选写一份 UTF-8 报告文件。
     # 为什么要文件：Windows 终端转发中文时的编码不稳定，而这份报告恰恰是
     # "出问题时最该保存下来"的东西，不能是乱码。
-    #   NAS 上： docker exec -it openclaw-workbench python /app/scripts/check_openclaw.py
+    #   NAS 上： docker exec -it workbench python /app/scripts/check_openclaw.py
     #   写文件：OWB_REPORT=./check.txt python scripts/check_openclaw.py
     import contextlib
     import io

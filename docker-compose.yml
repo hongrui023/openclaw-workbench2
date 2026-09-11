@@ -17,7 +17,7 @@
 services:
   workbench:
     image: openclaw-workbench:1.0.0
-    container_name: openclaw-workbench
+    container_name: workbench
     restart: unless-stopped
 
     ports:
@@ -60,12 +60,21 @@ services:
       WORKBENCH_LOG_LEVEL: "${WORKBENCH_LOG_LEVEL:-INFO}"
 
     volumes:
+      # 只挂这两个目录。这既是权限边界，也是最外层的那道硬保证：
+      # 没挂进来的路径，在容器内核层面就不存在。
       # ① 文献目录：PDF 源 + 生成的同名 .md
       - "${LITERATURE_DIR:-./literature}:/data/literature"
       # ② 生活记录：daily_notes.md + workbench_log.md
       - "${LIFE_NOTES_DIR:-./life_notes}:/data/life_notes"
-      # ③ 提示词（只读挂载）：改提示词只需编辑文件 + 重启容器，不用重建镜像
-      - "${PROMPTS_DIR:-./prompts}:/app/prompts:ro"
+      #
+      # ③（可选，默认注释）提示词目录只读挂载。
+      #   好处：以后调提示词只需在极空间文件管理器里改文件 + 重启容器，
+      #         不必走"交叉构建 → 传输 → 导入"那一圈慢流程。
+      #   安全性：只读，且来源是你自己仓库里的 prompts/ 目录，
+      #         不属于"绝不要挂"的那几类（/、/root、docker.sock、NAS 根）。
+      #   想要就取消下面这行的注释：
+      # - "${PROMPTS_DIR:-./prompts}:/app/prompts:ro"
+      # 不挂的话也没有影响：提示词已打进镜像，用的是构建时那一版。
 
     # 本地开发时让它能通过 host.docker.internal 访问宿主上的 OpenClaw
     extra_hosts:
