@@ -35,7 +35,9 @@ services:
       # 例：http://192.168.1.20:18789/v1  （结尾的 /v1 不能漏）
       OPENCLAW_BASE_URL: "${OPENCLAW_BASE_URL:-http://host.docker.internal:18789/v1}"
       OPENCLAW_TOKEN: "${OPENCLAW_TOKEN:-}"
-      OPENCLAW_MODEL: "${OPENCLAW_MODEL:-openclaw:main}"
+      # 你当前的 OpenClaw 接入的是 deepseek/deepseek-v4-flash，先从它开始。
+      # 若返回 400（名字不被接受），改成 OpenClaw 里的 agent 标识。
+      OPENCLAW_MODEL: "${OPENCLAW_MODEL:-deepseek/deepseek-v4-flash}"
       # 可选：指向 OpenClaw 中的专用受限 agent（V1 部署完再建，见 docs/OPENCLAW-API.md）
       OPENCLAW_AGENT_ID: "${OPENCLAW_AGENT_ID:-}"
       OPENCLAW_TIMEOUT_SECONDS: "${OPENCLAW_TIMEOUT_SECONDS:-300}"

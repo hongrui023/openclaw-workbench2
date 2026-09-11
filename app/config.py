@@ -134,7 +134,7 @@ class Settings:
             lockout_minutes=_int("LOGIN_LOCKOUT_MINUTES", 30, low=1, high=1440),
             openclaw_base_url=_str("OPENCLAW_BASE_URL", "http://127.0.0.1:18789/v1"),
             openclaw_token=_str("OPENCLAW_TOKEN"),
-            openclaw_model=_str("OPENCLAW_MODEL", "openclaw:main"),
+            openclaw_model=_str("OPENCLAW_MODEL", "deepseek/deepseek-v4-flash"),
             openclaw_agent_id=_str("OPENCLAW_AGENT_ID"),
             openclaw_timeout_seconds=_int("OPENCLAW_TIMEOUT_SECONDS", 300, low=10, high=3600),
             openclaw_max_retries=_int("OPENCLAW_MAX_RETRIES", 1, low=0, high=3),

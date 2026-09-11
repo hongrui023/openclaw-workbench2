@@ -70,8 +70,16 @@ OpenClaw 的 Gateway 提供 HTTP 接口，但它**默认是关闭的**。
 `OPENCLAW_MODEL` 会被原样放进请求体的 `model` 字段。
 
 - 拿到 **400** → 多半是这个名字不被 OpenClaw 接受。
-- 用你 NAS 上实际存在的 agent 标识（你当前已经是 `app:main` 之类，
-  具体以 OpenClaw 侧为准）。默认值 `openclaw:main` 只是个占位。
+- 你的 OpenClaw 当前接入的是 `deepseek/deepseek-v4-flash`，
+  所以默认值就填它，先用它试。
+- 如果 400，说明这个字段要的可能是 **agent 标识**而不是模型标识，
+  换成 OpenClaw 里的 agent 名再试。
+
+> 这两者容易混：**模型**是 OpenClaw 背后调用的那个（你的情况是 DeepSeek），
+> **agent** 是 OpenClaw 里的一套人格 + 工具配置。
+> OpenAI 兼容协议里这个字段叫 `model`，但 OpenClaw 拿它当什么用，
+> 取决于它自己的实现——`check_openclaw.py` 会把 400 和 200 的区别直接告诉你，
+> 不用在这里猜。
 
 ---
 

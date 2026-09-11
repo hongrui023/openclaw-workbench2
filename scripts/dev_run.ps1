@@ -19,7 +19,7 @@ param(
     [int]$Port = 8080,
     [string]$OpenClawBaseUrl = "http://127.0.0.1:18789/v1",
     [string]$OpenClawToken = "",
-    [string]$Model = "openclaw:main"
+    [string]$Model = "deepseek/deepseek-v4-flash"
 )
 
 $ErrorActionPreference = "Stop"

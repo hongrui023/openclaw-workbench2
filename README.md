@@ -70,11 +70,20 @@ powershell -ExecutionPolicy Bypass -File scripts\dev_run.ps1      # Windows
 ### 先跑自检（不需要 AI 服务）
 
 ```bash
-python scripts/selftest.py        # 业务逻辑 + 权限逻辑 + HTTP 层，共 95 项检查
+python scripts/selftest.py        # 业务逻辑 + 权限逻辑 + HTTP 层，共 97 项检查
 python scripts/smoke_http.py      # 真的起一个 uvicorn，检查对外行为与响应头
+python scripts/check_deploy.py    # Dockerfile / ARM64 依赖轮子 / compose / 端口暴露
+python scripts/secret_scan.py     # 提交前扫描：机密、私人数据、危险调用
 ```
 
-自检全部写入临时目录，跑完自动清理。
+自检全部写入临时目录，跑完自动清理。四个脚本各管一段：
+
+| 脚本 | 回答什么问题 |
+|---|---|
+| `selftest.py` | 逻辑对不对（路径守卫、失败处理、追加语义、分段归并） |
+| `smoke_http.py` | 对外行为对不对（响应头、缓存、认证拦截、首屏体积） |
+| `check_deploy.py` | 部署配置对不对（**不需要 Docker 也能跑**） |
+| `secret_scan.py` | 有没有不该进仓库的东西（提交前必跑） |
 
 ---
 

@@ -15,8 +15,9 @@
 见 README 的"快速开始"。跑一遍自检：
 
 ```bash
-python scripts/selftest.py       # 应输出 95 项通过
+python scripts/selftest.py       # 应输出 97 项通过、0 项跳过
 python scripts/smoke_http.py     # 应输出"全部通过"
+python scripts/check_deploy.py   # 静态检查 Dockerfile / ARM64 轮子 / compose / 端口
 ```
 
 **为什么必须先做这一步**：极空间不能 `docker build`，镜像要在你的电脑上构建、
@@ -82,6 +83,21 @@ bash scripts/build-arm64.sh 1.0.0
 
 Docker → **容器** → **添加** → 选择刚导入的镜像。
 
+### ⚠️ 先确认宿主机真实路径，再填挂载
+
+极空间文件管理器里看到的 `/sata11/literature` 是**极空间展示给你的路径**，
+容器挂载要填的不一定是同一个写法。**不要猜，也不要"随便填一个试试"。**
+
+确认方法：
+
+1. Docker → 容器 → 添加 → 找到「文件夹路径」
+2. 点「添加」，在弹出的路径选择器里逐级展开，**选中 `literature` 目录**
+3. 选择器上显示的完整路径，就是这一项要填的值
+4. 对 `life_notes` 重复一次
+
+把两次的结果记下来再往下走。**如果选择器里根本找不到这两个目录，
+或者显示的路径和你预期完全不一样，就先停下来别配** —— 直接把看到的情况告诉我。
+
 ### 基本设置
 
 | 项 | 填什么 |
@@ -121,7 +137,7 @@ Docker → **容器** → **添加** → 选择刚导入的镜像。
 | `WORKBENCH_PASSWORD_HASH` | 阶段 1 生成的那段哈希（**不要填明文**） |
 | `OPENCLAW_BASE_URL` | `http://192.168.1.20:18789/v1` ⚠️ 见下方警告 |
 | `OPENCLAW_TOKEN` | OpenClaw Gateway 的访问令牌 |
-| `OPENCLAW_MODEL` | OpenClaw 侧实际可用的标识（如 `openclaw:main`） |
+| `OPENCLAW_MODEL` | `deepseek/deepseek-v4-flash`（你当前 OpenClaw 接入的模型；若返回 400 再换成 agent 标识） |
 | `CHUNK_MAX_CHARS` | `48000` |
 | `REDUCE_FAN_IN` | `6` |
 | `SESSION_DAYS` | `30` |
@@ -134,6 +150,13 @@ Docker → **容器** → **添加** → 选择刚导入的镜像。
 > 本地直接跑（不用容器）时才可以用 `127.0.0.1`。
 >
 > 另外结尾的 `/v1` 不能漏。
+
+> **为什么不用 Docker 内部网络（那样隔离更彻底）？**
+> 更彻底的做法是把两个容器放进同一个自定义网络、用容器名互访，
+> 那样 18789 连局域网都不必暴露。但"加入网络"意味着
+> **必须重建 `appstore_openclaw` 容器** —— 那属于修改现有 OpenClaw，
+> 你明确要求 V1 不动它，所以这里先用局域网 IP。
+> 等你确认 V1 跑通、并且愿意动 OpenClaw 时，再单独做这一步。
 
 ### 能力 / 权限
 
@@ -158,7 +181,7 @@ NAS 总共 4 GB，还要和 OpenClaw 共享，设个上限更安全。
 ```
 openclaw-workbench v1.0.0 启动中…
 AI 服务地址：http://192.168.1.20:18789/v1/chat/completions
-AI 服务令牌：abc…yz(共 64 位)
+AI 服务令牌：已配置（长度 64）
 模型标识：openclaw:main
 文献目录：/data/literature
 记录目录：/data/life_notes
@@ -166,6 +189,11 @@ AI 服务令牌：abc…yz(共 64 位)
 任务队列已启动（单 worker，串行执行）
 启动完成，等待请求。
 ```
+
+> 注意上面那行"已配置（长度 64）"：**日志里连令牌的一个字符都不会出现**，
+> 只报告"配了没有、多长"。长度够不够已经能判断最常见的配置错误
+> （忘填、复制时被截断、尾巴上多带了引号）。
+> 如果你在别的工具里看到令牌被打印成 `abc…xyz`，那不是这里。
 
 如果看到红色的 `★ 登录口令未配置` 或 `★ OPENCLAW_TOKEN 未设置`，按提示补上环境变量再重启。
 
@@ -184,10 +212,42 @@ AI 服务令牌：abc…yz(共 64 位)
 
 - [ ] 进容器看 `ls /data` → **只有 `literature` 和 `life_notes`**
       （Docker → 容器 → 终端，或 `docker exec -it openclaw-workbench ls /data`）
+- [ ] 在容器里 `ls /`、`ls /etc`、`ls /root` → 看到的是**容器自己的**文件系统，
+      不是你 NAS 上的目录。NAS 的其他目录在内核层面就不可见
 - [ ] 把 `OPENCLAW_TOKEN` 临时改错再分析 → 提示"AI 服务暂时不可用"，
       **不包含任何内网地址、端口或令牌片段**
+- [ ] **重启容器** → 之前生成的 `.md`、`daily_notes.md`、`workbench_log.md`
+      内容一字不少（数据在挂载卷上，不在容器可写层里）
 - [ ] 浏览器开发者工具 → 网络面板 → 搜索 `18789`、搜令牌 → **搜不到**
 - [ ] 浏览器开发者工具 → 应用 → Cookie → `owb_session` 有 HttpOnly 标记
+
+### 符号链接验证（必须在 NAS 上做）
+
+Windows 上做不出可靠结论——`os.symlink` 需要管理员权限，
+而 Windows 的 junction 与 Linux 软链接语义并不完全一致。
+所以这一条**只能在 NAS 的 Linux 上验证**。
+
+在容器终端里执行（极空间 Docker → 容器 → 终端）：
+
+```sh
+cd /data/literature
+ln -s /etc/passwd evil.pdf     # 指向根外文件的软链接
+ln -s /etc evil-sub            # 指向根外目录的软链接
+ls -l | head
+```
+
+回到工作台网页：
+
+- [ ] 「文献分析」的列表里 **不应出现 `evil.pdf` 或 `evil-sub`**
+- [ ] 如果界面允许直接指定文件名，指定 `evil.pdf` → 报**「路径不被允许」**
+      （注意区分：要的是"路径不被允许"，不是"文件不存在"。
+      后者说明守卫放行了，是第一道就没拦住）
+
+验证完**务必删掉这两个软链接**（在极空间文件管理器里删，或终端 `rm`）。
+
+> 为什么这条值得单独测：`evil.pdf` 的前缀完全合法——它确实就在
+> `/data/literature` 下面。只有把路径解引用之后，才能看出它跑到了根外。
+> 守卫里有两道互相独立的检查（禁止链接 / realpath 后校验），任一道拦住都算通过。
 
 ### AI 服务连通性
 
