@@ -1,0 +1,226 @@
+# ============================================================
+# openclaw-workbench · 云端 ARM64 构建
+#
+# 为什么要有这个工作流：
+#   开发机是 Windows x86_64，没有 Docker；极空间 Z2 Pro 是 ARM64 且
+#   不开放 SSH、不能 `docker build`，只接受「带 tag 的 tar 导入」。
+#   于是把构建放到 GitHub 的 x86_64 runner 上用 QEMU 交叉构建 arm64，
+#   产出物是一个可以直接在极空间「导入镜像」的 tar 包。
+#
+# 触发方式：
+#   - push 到 main          → 构建 1.0.0（见下方"版本号"步骤）
+#   - push 形如 v1.0.1 的 tag → 构建 1.0.1
+#   - 手动 Run workflow     → 自定义版本号
+#
+# 产出物（Actions 页面 → 该次运行 → Artifacts）：
+#   openclaw-workbench-arm64-<版本>/
+#     ├── openclaw-workbench-<版本>-arm64.tar.gz          ← 下载后导入极空间
+#     └── openclaw-workbench-<版本>-arm64.tar.gz.sha256   ← 传输后校验完整性
+#
+# ★ 本工作流不接触任何密钥：
+#   - 工作台运行时令牌（OPENCLAW_TOKEN / WORKBENCH_PASSWORD_HASH）由
+#     极空间的容器环境变量提供，绝不进仓库、绝不进 Actions。
+#   - 冒烟测试用的是临时口令，容器用完即删。
+# ============================================================
+
+name: build-arm64
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "镜像版本号（留空则用 1.0.0）"
+        required: false
+        default: "1.0.0"
+
+# 同一分支/标签上重复触发时，取消上一次未完成的运行
+concurrency:
+  group: build-arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: openclaw-workbench
+
+jobs:
+  # ---------------------------------------------------------
+  # 第一道闸门：静态校验 + 自检，全部在 x86_64 上跑，几秒钟的事。
+  # 这一步挂了就不必浪费十几分钟去构建镜像。
+  # ---------------------------------------------------------
+  verify:
+    name: 静态校验与自检
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 自检（路径守卫 / 生活记录 / 分段归并 / HTTP 层）
+        run: python scripts/selftest.py
+
+      - name: 密钥与危险调用扫描
+        run: python scripts/secret_scan.py
+
+      - name: 部署前静态校验（Dockerfile / ARM64 轮子 / compose / 公网端口）
+        run: python scripts/check_deploy.py
+
+  # ---------------------------------------------------------
+  # 第二道闸门：真正构建 linux/arm64/v8 镜像。
+  # ---------------------------------------------------------
+  image-arm64:
+    name: 构建 linux/arm64/v8 镜像
+    needs: verify
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 计算版本号与文件名
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="1.0.0"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tar=openclaw-workbench-${VERSION}-arm64.tar" >> "$GITHUB_OUTPUT"
+          echo "local=${IMAGE_NAME}:${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "ghcr=ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "版本号：${VERSION}"
+
+      - name: 准备 QEMU（让 x86_64 runner 能构建/运行 arm64）
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: 准备 Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建 ARM64 镜像并导出为 tar
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          docker buildx build \
+            --platform linux/arm64/v8 \
+            --build-arg OWB_UID=10001 \
+            --build-arg OWB_GID=10001 \
+            --provenance=false \
+            --sbom=false \
+            --tag "${{ steps.ver.outputs.local }}" \
+            --output "type=docker,dest=dist/${{ steps.ver.outputs.tar }}" \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            .
+
+      - name: 载入镜像并核对架构
+        run: |
+          set -euo pipefail
+          docker load -i "dist/${{ steps.ver.outputs.tar }}"
+          ARCH="$(docker inspect --format '{{.Os}}/{{.Architecture}}' "${{ steps.ver.outputs.local }}")"
+          echo "镜像架构：${ARCH}"
+          if [ "${ARCH}" != "linux/arm64" ]; then
+            echo "::error::镜像架构不是 linux/arm64，而是 ${ARCH}"
+            exit 1
+          fi
+          docker image ls
+
+      - name: 冒烟测试（QEMU 模拟 arm64 实际启动容器）
+        run: |
+          set -euo pipefail
+          IMG="${{ steps.ver.outputs.local }}"
+
+          # 用镜像内自带脚本生成一个临时口令哈希，仅用于本次冒烟测试
+          HASH="$(docker run --rm --entrypoint python "${IMG}" -c \
+            "from app.security.auth import make_password_hash; print(make_password_hash('ci-smoke-only-0123456789'))")"
+          echo "临时口令哈希长度：${#HASH}"
+
+          docker run -d --name owb-smoke -p 8080:8080 \
+            -e WORKBENCH_PASSWORD_HASH="${HASH}" \
+            -e OPENCLAW_TOKEN="ci-placeholder" \
+            "${IMG}"
+
+          echo "等待容器就绪……"
+          READY=0
+          for i in $(seq 1 40); do
+            sleep 3
+            if curl -fsS -o /dev/null "http://127.0.0.1:8080/api/health"; then
+              READY=1
+              echo "健康检查通过（第 ${i} 次尝试）"
+              break
+            fi
+          done
+
+          echo "--- 容器日志 ---"
+          docker logs owb-smoke || true
+
+          if [ "${READY}" != "1" ]; then
+            echo "::error::容器在 120 秒内没有通过 /api/health"
+            docker rm -f owb-smoke || true
+            exit 1
+          fi
+
+          echo "--- 首页可访问性 ---"
+          curl -fsS -o /dev/null -w "GET / -> %{http_code}\n" "http://127.0.0.1:8080/"
+
+          docker rm -f owb-smoke
+
+      - name: 压缩并生成校验和
+        run: |
+          set -euo pipefail
+          cd dist
+          gzip -9 "${{ steps.ver.outputs.tar }}"
+          # Windows 上解压后要用 certutil 核对，这里同时给出两种格式
+          sha256sum "${{ steps.ver.outputs.tar }}.gz" | tee "${{ steps.ver.outputs.tar }}.gz.sha256"
+          ls -lh
+
+      - name: 上传镜像 tar（极空间导入用的就是它）
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-workbench-arm64-${{ steps.ver.outputs.version }}
+          path: |
+            dist/${{ steps.ver.outputs.tar }}.gz
+            dist/${{ steps.ver.outputs.tar }}.gz.sha256
+          retention-days: 30
+          compression-level: 0
+
+      - name: 登录 GHCR
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 推送到 GHCR（备用分发通道）
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker push "${{ steps.ver.outputs.ghcr }}"
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            LATEST="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
+            docker tag "${{ steps.ver.outputs.local }}" "${LATEST}"
+            docker push "${LATEST}"
+          fi
+          echo "已推送。注意：ghcr.io 在国内访问可能较慢，优先用上面的 tar 包。"

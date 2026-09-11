@@ -49,6 +49,42 @@ python -c "import secrets;print(secrets.token_urlsafe(24))"
 
 ## 阶段 2：构建 ARM64 镜像
 
+极空间不能 `docker build`，你的 Windows 电脑也没有 Docker —— 所以这一步有两条路，**任选一条**。
+
+### 路线 A（推荐）：GitHub Actions 云端构建，本机什么都不用装
+
+仓库里已经放好了工作流 `.github/workflows/build-arm64.yml`。
+它在一台 x86_64 的 GitHub runner 上用 QEMU 交叉构建 `linux/arm64/v8`，
+跑完自检 + 静态校验，再把容器真启动一次做冒烟测试，最后产出 tar 包。
+
+**怎么触发**：把代码推到 GitHub 的 `main` 分支就会自动跑；
+也可以进仓库页面 → **Actions** → 左侧 `build-arm64` → **Run workflow**（可填版本号）。
+
+**怎么拿产物**：Actions → 点进那次运行 → 页面底部 **Artifacts** → 下载
+`openclaw-workbench-arm64-1.0.0`，解压得到一个压缩包：
+
+```
+openclaw-workbench-1.0.0-arm64.tar.gz          ← 就是它，下一步导入极空间
+openclaw-workbench-1.0.0-arm64.tar.gz.sha256   ← 校验和
+```
+
+**传输后先核对完整性**（可选但建议，几百 MB 的文件走网络容易缺字节）：
+
+```powershell
+# Windows PowerShell：先算出来
+Get-FileHash .\openclaw-workbench-1.0.0-arm64.tar.gz -Algorithm SHA256
+# 再和 .sha256 文件里的那串比对，一致才导入
+```
+
+解压出 `.tar` 后再进阶段 3。工作流产出的是**非压缩 tar 再 gzip**，
+所以解压一次就得到极空间要的 `openclaw-workbench-1.0.0-arm64.tar`。
+
+> 私有仓库的 Actions 有免费额度（约 2000 分钟/月、500 MB 制品存储）。
+> 一次构建大约 10–15 分钟。如果觉得吃紧，把仓库改成 public 即可获得
+> 不限量的 Actions 分钟数与制品存储（本仓库按设计不含任何私人数据）。
+
+### 路线 B：在自己的电脑上交叉构建（需要 Docker Desktop）
+
 ```powershell
 # Windows
 powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.0
@@ -65,7 +101,10 @@ bash scripts/build-arm64.sh 1.0.0
 **应该看到**：最后打印出 `openclaw-workbench-1.0.0.tar` 的路径和大小（大约 150–250 MB）。
 
 > `--platform linux/arm64/v8` 是硬性要求。漏了的话镜像导入极空间后跑不起来。
-> 脚本里已经写死了，不用你操心。
+> 两条路线都已经写死了，不用你操心。
+
+> **两条路线导入后镜像名是一样的**：都是 `openclaw-workbench:1.0.0`，
+> 只有外层文件名不同（路线 A 多一个 `-arm64` 后缀）。阶段 4 里选的就是这个名字。
 
 ---
 

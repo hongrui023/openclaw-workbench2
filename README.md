@@ -94,9 +94,15 @@ python scripts/secret_scan.py     # 提交前扫描：机密、私人数据、�
 一句话版本：
 
 ```bash
-# 在你的电脑上交叉构建（极空间不能 docker build）
+# 路线 A（推荐，本机不用装 Docker）：推到 GitHub，Actions 自动构建
+#   → 进仓库 Actions → build-arm64 → 下载 Artifacts
+#   → 解压得到 openclaw-workbench-1.0.0-arm64.tar
+
+# 路线 B：在自己的电脑上交叉构建（需要 Docker Desktop）
 powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.0
-# → 得到 openclaw-workbench-1.0.0.tar
+#   → 得到 openclaw-workbench-1.0.0.tar
+
+# 无论哪条路线，接下来都一样：
 # → 上传到极空间 → Docker → 镜像 → 导入镜像
 # → 创建容器：2 个数据挂载 + 8 个环境变量 + 1 个端口
 ```
@@ -169,6 +175,7 @@ openclaw-workbench/
 ├─ prompts/                    提示词模板（建议挂载，改完重启即可生效）
 ├─ scripts/                    自检、交叉构建、口令哈希、连通性检查
 ├─ docs/                       部署、安全、接口说明
+├─ .github/workflows/          云端构建 ARM64 镜像（QEMU + buildx，产出可导入的 tar）
 ├─ Dockerfile
 ├─ docker-compose.yml
 └─ requirements.txt
