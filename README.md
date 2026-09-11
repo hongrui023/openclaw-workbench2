@@ -123,9 +123,9 @@ docker exec -it workbench python /app/scripts/check_openclaw.py
 | 变量 | 必填 | 默认 | 说明 |
 |---|---|---|---|
 | `WORKBENCH_PASSWORD_HASH` | ✅ | — | 登录口令的 scrypt 哈希。`python scripts/make_password_hash.py` 生成 |
-| `OPENCLAW_BASE_URL` | ✅ | — | 例 `http://192.168.1.20:18789/v1`。**容器里绝不能填 127.0.0.1** |
+| `OPENCLAW_BASE_URL` | ✅ | — | 例 `http://192.168.1.77:51879/v1`（NAS 局域网 IP + **宿主**映射端口）。**容器里绝不能填 127.0.0.1** |
 | `OPENCLAW_TOKEN` | ✅ | — | 访问令牌，只在后端使用 |
-| `OPENCLAW_MODEL` | | `openclaw:main` | 发给 AI 服务的 model 字段 |
+| `OPENCLAW_MODEL` | | `openclaw/default` | AI 侧的 **agent 目标**（不是后端模型名）。官方文档点名的稳定别名 |
 | `OPENCLAW_AGENT_ID` | | 空 | 可选，指定专用受限 agent |
 | `SESSION_DAYS` | | `30` | 会话有效期 |
 | `LOGIN_LOCKOUT_MINUTES` | | `30` | 连续登录失败后的锁定时长 |

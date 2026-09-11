@@ -28,8 +28,8 @@ POST  {OPENCLAW_BASE_URL}/chat/completions
 即 **OpenAI Chat Completions 兼容协议**。
 
 `OPENCLAW_BASE_URL` 填到 `/v1` 为止，工作台自己拼 `/chat/completions`。
-例如填 `http://192.168.1.20:18789/v1`，实际请求的是
-`http://192.168.1.20:18789/v1/chat/completions`。
+例如填 `http://192.168.1.77:51879/v1`，实际请求的是
+`http://192.168.1.77:51879/v1/chat/completions`。
 
 工作台**只收发纯文本**：入参是字符串，返回值是字符串。
 它拿不到文件路径，也无从读写文件——所以即使 PDF 里藏着提示词注入，
@@ -39,47 +39,84 @@ POST  {OPENCLAW_BASE_URL}/chat/completions
 
 ## 2. 需要确认/开启的三件事
 
-### ① HTTP 接口是否启用
+### ① HTTP 接口 —— 【2026-09-12 实测：当前是关闭的】
 
-OpenClaw 的 Gateway 提供 HTTP 接口，但它**默认是关闭的**。
+实测结论：
 
-- 如果你访问 `http://<NAS-IP>:18789/v1/chat/completions` 得到 **404 或 405**，
-  说明这个端点没有启用。
-- 需要在 OpenClaw 的配置文件里打开它。按 OpenClaw 官方文档的形态，这个开关在
-  `~/.openclaw/openclaw.json` 里，路径形如
-  `gateway.http.endpoints.chatCompletions.enabled`（默认 `false`）。
+```
+POST http://192.168.1.77:51879/v1/chat/completions  →  404 Not Found
+GET  http://192.168.1.77:51879/                     →  200（OpenClaw Control 网页）
+```
 
-> ⚠️ **诚实说明**：这个键名来自 OpenClaw 的公开文档，我没有在你那台机器上验证过。
-> 不同版本的配置结构可能不一样。**请以你这版 OpenClaw 的文档/示例配置为准**，
-> 不要照抄我这段话里的字面路径。
+端口是通的，但那个端点没有启用。这是**官方默认行为**——
+OpenClaw 文档原文：*"This endpoint is disabled by default."*
+
+**怎么开（不需要 SSH，在网页上就能做）：**
+
+1. 浏览器打开 `http://192.168.1.77:51879`（就是 OpenClaw Control 那个页面），登录
+2. 进入 **Config** 标签页 —— 它会把当前版本的 live schema 渲染成表单
+3. 找到 `gateway` → `http` → `endpoints` → `chatCompletions` → `enabled`
+4. 设为 `true`，保存（界面会做校验，比手改文件安全）
+5. 顺便展开 `gateway` → `auth`，记下 `mode` 和对应的密钥值（见下面第 ② 条）
+
+> 如果表单里找不到这一层，用 Config 页里的 raw JSON 编辑器，
+> 把这段合并进去：
 >
-> 如果你打开配置文件后发现结构不同，把它的（脱敏后的）结构发我，我按你的实际版本
-> 调整工作台的适配层——**适配层是独立的一个文件（`app/services/openclaw.py`）**，
-> 换协议形态只改这一处，不动其他任何代码。
+> ```json5
+> {
+>   gateway: {
+>     http: {
+>       endpoints: {
+>         chatCompletions: { enabled: true },
+>       },
+>     },
+>   },
+> }
+> ```
+
+> ⚠️ **开完之后请记住一件事**：官方文档对这个端点的定性是
+> *"treat this endpoint as full operator access to the gateway instance"* ——
+> 它是**全操作员权限**的接口，等同于你的控制台凭据。
+> 所以它只能待在局域网，**绝对不能做公网映射**。
+> 本方案里它也确实只对局域网开放（穿透只映射工作台的 8080）。
 
 ### ② 访问令牌
 
-`OPENCLAW_TOKEN` 就是 Gateway 的访问令牌。工作台用它做 `Bearer` 认证。
+`OPENCLAW_TOKEN` 就是 Gateway 的访问令牌，工作台用它发 `Authorization: Bearer`。
+
+取法：**同一个 Config 页** → `gateway` → `auth`：
+
+| `gateway.auth.mode` | 令牌取自哪里 |
+|---|---|
+| `token` | `gateway.auth.token` 的值（或环境变量 `OPENCLAW_GATEWAY_TOKEN`） |
+| `password` | `gateway.auth.password` 的值（或环境变量 `OPENCLAW_GATEWAY_PASSWORD`） |
+
+两种模式在工作台这一侧**填法完全一样**——都填进 `OPENCLAW_TOKEN`，
+适配层统一发 `Bearer`，不需要你区分。
 
 - 拿到 **401 / 403** → 令牌不对，或令牌权限不足。
 - 这个令牌**只出现在两个地方**：容器的环境变量，和适配层发出的请求头。
-  它不会出现在任何 HTTP 响应里，也不会出现在前端代码里。
+  它不会出现在任何 HTTP 响应里，也不会出现在前端代码或日志里。
 
-### ③ model 字段
+### ③ model 字段 —— 这里有个反直觉的点
 
-`OPENCLAW_MODEL` 会被原样放进请求体的 `model` 字段。
+`OPENCLAW_MODEL` 会被原样放进请求体的 `model` 字段。但
+**OpenClaw 把它解释成「agent 目标」，不是后端模型 id。**
 
-- 拿到 **400** → 多半是这个名字不被 OpenClaw 接受。
-- 你的 OpenClaw 当前接入的是 `deepseek/deepseek-v4-flash`，
-  所以默认值就填它，先用它试。
-- 如果 400，说明这个字段要的可能是 **agent 标识**而不是模型标识，
-  换成 OpenClaw 里的 agent 名再试。
+官方文档原文：*"OpenClaw treats the OpenAI `model` field as an agent target,
+not a raw provider model id."* 它的 `/v1/models` 列出的也是
+`openclaw`、`openclaw/default`、`openclaw/` 这些 agent 目标，
+**不是** `deepseek/...` 这类 provider 模型。
 
-> 这两者容易混：**模型**是 OpenClaw 背后调用的那个（你的情况是 DeepSeek），
-> **agent** 是 OpenClaw 里的一套人格 + 工具配置。
-> OpenAI 兼容协议里这个字段叫 `model`，但 OpenClaw 拿它当什么用，
-> 取决于它自己的实现——`check_openclaw.py` 会把 400 和 200 的区别直接告诉你，
-> 不用在这里猜。
+所以：
+
+- ✅ 默认填 **`openclaw/default`** —— 官方点名的"稳定别名"，
+  永远指向你配置好的默认 agent，即使以后改了 agent 名字也不会失效。
+- ❌ **不要**填 `deepseek/deepseek-v4-flash`。那是 OpenClaw 内部的后端模型，
+  由 OpenClaw 自己管，工作台既不需要、也不应该知道它。
+- 拿到 **400** → 才改用 `openclaw:<某个具体 agent 名>`。
+- 如果要用请求头显式指定 agent，填 `OPENCLAW_AGENT_ID`（工作台会发
+  `x-openclaw-agent-id`）。用 model 字段指定时留空即可。
 
 ---
 
@@ -108,13 +145,18 @@ docker exec -it workbench python /app/scripts/check_openclaw.py
 > **容器里的 `127.0.0.1` 指的是容器自己，不是 NAS。**
 
 你的 OpenClaw 是极空间应用商店安装的 Docker 应用（容器名 `appstore_openclaw`），
-它把 `18789` 发布在 **NAS 宿主**上。而工作台是**另一个容器**，
-所以在工作台容器里填 `http://127.0.0.1:18789/v1` 会连到它自己，必然失败。
+网络是 `appstore_default`（bridge），**宿主端口 `51879` → 容器端口 `28789`**。
+而工作台是**另一个容器**，所以：
 
-**必须填 NAS 的局域网 IP**，例如 `http://192.168.1.20:18789/v1`。
+- 在工作台容器里填 `http://127.0.0.1:51879/v1` → 连到它自己，必然失败。
+- 填容器端口 `28789` 也不行 —— 那个端口只在 `appstore_default` 网络内部可达，
+  工作台容器不在那个网络里。
 
-（如果是本地直接跑工作台、OpenClaw 也在这台电脑上，那 `127.0.0.1` 才是对的。
-`scripts/dev_run.ps1` 的默认值就是这个场景。）
+**必须填 `http://192.168.1.77:51879/v1`**：NAS 的局域网 IP + 宿主映射端口。
+
+（如果哪天工作台容器也加入了 `appstore_default` 网络，就可以改用
+`http://appstore_openclaw:28789/v1`，连宿主端口都不必暴露。
+但那要求重建现有 OpenClaw 容器，V1 不做。）
 
 ---
 

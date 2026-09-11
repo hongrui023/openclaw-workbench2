@@ -302,8 +302,9 @@ class OpenClawClient:
                 stage="网络连接",
                 detail=scrub(f"{type(exc).__name__}"),
                 hint=(
-                    "网络不通。注意：容器里的 127.0.0.1 指的是容器自己，不是 NAS。"
-                    "OPENCLAW_BASE_URL 必须填 NAS 的局域网 IP，例如 http://192.168.1.20:18789/v1"
+                    "网络不通。注意两点：① 容器里的 127.0.0.1 指的是容器自己，不是 NAS；"
+                    "② 端口要填宿主机映射出来的那个，不是容器内部端口。"
+                    "OPENCLAW_BASE_URL 形如 http://<NAS局域网IP>:<宿主机映射端口>/v1"
                 ),
             )
         return ProbeResult(ok=True, stage="调用 /chat/completions", detail=f"模型已返回：{scrub(content)}")

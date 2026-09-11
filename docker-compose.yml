@@ -11,7 +11,7 @@
 #     - 没有 cap_add
 #     - 没有 /var/run/docker.sock 挂载（挂进去等于交出整台 NAS）
 #     - 没有 net=host
-#     - 只挂载 literature / life_notes / prompts 三处
+#     - 只挂载 literature / life_notes 两处
 # ============================================================
 
 services:
@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
 
     ports:
-      # 只暴露 8080 一个端口。OpenClaw 的 18789 绝不在这里出现。
+      # 只暴露 8080 一个端口。AI 服务的任何端口都绝不在这里出现。
       - "8080:8080"
 
     environment:
@@ -31,13 +31,15 @@ services:
       LOGIN_LOCKOUT_MINUTES: "${LOGIN_LOCKOUT_MINUTES:-30}"
 
       # ---- OpenClaw 适配层 ----
-      # 容器内的 127.0.0.1 指向容器自己，因此这里必须填【NAS 的局域网 IP】。
-      # 例：http://192.168.1.20:18789/v1  （结尾的 /v1 不能漏）
-      OPENCLAW_BASE_URL: "${OPENCLAW_BASE_URL:-http://host.docker.internal:18789/v1}"
+      # 容器内的 127.0.0.1 指向容器自己，因此这里必须填【NAS 的局域网 IP】，
+      # 并且端口要填【宿主机映射端口】，不是容器内部端口。
+      # 例：http://192.168.1.77:51879/v1   ← 结尾的 /v1 不能漏
+      OPENCLAW_BASE_URL: "${OPENCLAW_BASE_URL:-http://host.docker.internal:51879/v1}"
       OPENCLAW_TOKEN: "${OPENCLAW_TOKEN:-}"
-      # 你当前的 OpenClaw 接入的是 deepseek/deepseek-v4-flash，先从它开始。
-      # 若返回 400（名字不被接受），改成 OpenClaw 里的 agent 标识。
-      OPENCLAW_MODEL: "${OPENCLAW_MODEL:-deepseek/deepseek-v4-flash}"
+      # model 在 OpenClaw 里代表【agent 目标】，不是后端模型 id。
+      # openclaw/default 是官方文档推荐的稳定别名：即使默认 agent 改名也不会失效。
+      # 只有当它返回 400 时，才改用 openclaw:<某个具体 agent>。
+      OPENCLAW_MODEL: "${OPENCLAW_MODEL:-openclaw/default}"
       # 可选：指向 OpenClaw 中的专用受限 agent（V1 部署完再建，见 docs/OPENCLAW-API.md）
       OPENCLAW_AGENT_ID: "${OPENCLAW_AGENT_ID:-}"
       OPENCLAW_TIMEOUT_SECONDS: "${OPENCLAW_TIMEOUT_SECONDS:-300}"

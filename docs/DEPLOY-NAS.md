@@ -6,7 +6,7 @@
 
 - [ ] 极空间的 Docker 可用（应用商店里已安装 Docker）
 - [ ] `literature` 和 `life_notes` 两个目录已建好，记下它们的完整路径
-- [ ] NAS 的局域网 IP（下文用 `192.168.1.20` 举例，请替换成你自己的）
+- [ ] NAS 的局域网 IP（下文用 `192.168.1.77` 举例，请替换成你自己的）
 
 ---
 
@@ -144,27 +144,37 @@ Docker → **容器** → **添加** → 选择刚导入的镜像。
 | 变量 | 值 |
 |---|---|
 | `WORKBENCH_PASSWORD_HASH` | 阶段 1 生成的那段哈希（**不要填明文**） |
-| `OPENCLAW_BASE_URL` | `http://192.168.1.20:18789/v1` ⚠️ 见下方警告 |
-| `OPENCLAW_TOKEN` | OpenClaw Gateway 的访问令牌 |
-| `OPENCLAW_MODEL` | `deepseek/deepseek-v4-flash`（你当前 OpenClaw 接入的模型；若返回 400 再换成 agent 标识） |
+| `OPENCLAW_BASE_URL` | `http://192.168.1.77:51879/v1` ⚠️ 见下方警告 |
+| `OPENCLAW_TOKEN` | OpenClaw Gateway 的访问令牌（取法见 `docs/OPENCLAW-API.md`） |
+| `OPENCLAW_MODEL` | `openclaw/default`（**不要填 deepseek 的模型名**，理由见下） |
 | `CHUNK_MAX_CHARS` | `48000` |
 | `REDUCE_FAN_IN` | `6` |
 | `SESSION_DAYS` | `30` |
 | `TZ` | `Asia/Shanghai` |
 
-> ⚠️ **最容易踩的坑**：
-> 你的 OpenClaw 是容器（`appstore_openclaw`），工作台也是容器。
-> **容器里的 `127.0.0.1` 指的是容器自己，不是 NAS。**
-> `OPENCLAW_BASE_URL` 必须填 **NAS 的局域网 IP**。
-> 本地直接跑（不用容器）时才可以用 `127.0.0.1`。
+> ⚠️ **两个最容易踩的坑**：
 >
-> 另外结尾的 `/v1` 不能漏。
+> ① 你的 OpenClaw 是容器（`appstore_openclaw`），工作台也是容器。
+> **容器里的 `127.0.0.1` 指的是容器自己，不是 NAS。**
+> `OPENCLAW_BASE_URL` 必须填 **NAS 的局域网 IP**，结尾的 `/v1` 也不能漏。
+>
+> ② **端口要填「宿主机映射端口」，不是容器端口。**
+> 极空间把 OpenClaw 的容器端口 `28789` 映射到了宿主的 `51879`，
+> 所以工作台连的是 `51879`。容器端口只有同一 Docker 网络内的容器才能直连。
+
+> **为什么 `OPENCLAW_MODEL` 不填 `deepseek/deepseek-v4-flash`？**
+> 因为 OpenClaw 把这个字段解释成 **agent 目标**，不是后端模型名。
+> 它的 `/v1/models` 列出的也是 agent（`openclaw`、`openclaw/default`），
+> 而不是 provider 模型。后端到底用 DeepSeek 还是别的，由 OpenClaw 自己决定，
+> 工作台既不需要、也不应该知道。
+> `openclaw/default` 是官方文档点名的"稳定别名"——即使你以后改了默认 agent
+> 的名字，它依然有效。只有当它返回 400 时，才改用 `openclaw:<具体agent名>`。
 
 > **为什么不用 Docker 内部网络（那样隔离更彻底）？**
 > 更彻底的做法是把两个容器放进同一个自定义网络、用容器名互访，
-> 那样 18789 连局域网都不必暴露。但"加入网络"意味着
+> 那样连宿主上的 `51879` 都不必暴露。但"加入网络"意味着
 > **必须重建 `appstore_openclaw` 容器** —— 那属于修改现有 OpenClaw，
-> 你明确要求 V1 不动它，所以这里先用局域网 IP。
+> 你明确要求 V1 不动它，所以这里先用宿主机端口。
 > 等你确认 V1 跑通、并且愿意动 OpenClaw 时，再单独做这一步。
 
 ### 能力 / 权限
@@ -189,9 +199,9 @@ NAS 总共 4 GB，还要和 OpenClaw 共享，设个上限更安全。
 
 ```
 openclaw-workbench v1.0.0 启动中…
-AI 服务地址：http://192.168.1.20:18789/v1/chat/completions
+AI 服务地址：http://192.168.1.77:51879/v1/chat/completions
 AI 服务令牌：已配置（长度 64）
-模型标识：openclaw:main
+模型标识：openclaw/default
 文献目录：/data/literature
 记录目录：/data/life_notes
 分块参数：单块上限 48000 字符 / 重叠 800 / 归并分组 6 / 块数上限 60
@@ -227,7 +237,7 @@ AI 服务令牌：已配置（长度 64）
       **不包含任何内网地址、端口或令牌片段**
 - [ ] **重启容器** → 之前生成的 `.md`、`daily_notes.md`、`workbench_log.md`
       内容一字不少（数据在挂载卷上，不在容器可写层里）
-- [ ] 浏览器开发者工具 → 网络面板 → 搜索 `18789`、搜令牌 → **搜不到**
+- [ ] 浏览器开发者工具 → 网络面板 → 搜索 `51879`、搜令牌 → **搜不到**
 - [ ] 浏览器开发者工具 → 应用 → Cookie → `owb_session` 有 HttpOnly 标记
 
 ### 符号链接验证（必须在 NAS 上做）
@@ -286,9 +296,9 @@ docker exec -it workbench python /app/scripts/check_openclaw.py
 | **访问密码** | **开启**，设一个强口令 |
 | 访问规则 | 需要密码，不公开 |
 
-**只有这一条映射，只指向 8080。绝不添加指向 18789 的任何映射。**
+**只有这一条映射，只指向 8080。绝不添加指向 51879 的任何映射。**
 
-> 如果 `127.0.0.1:8080` 连不通，改填 NAS 的局域网 IP `http://192.168.1.20:8080`。
+> 如果 `127.0.0.1:8080` 连不通，改填 NAS 的局域网 IP `http://192.168.1.77:8080`。
 > 这一项需要你实际点一次才知道。
 
 ### 外网验证清单
@@ -296,9 +306,9 @@ docker exec -it workbench python /app/scripts/check_openclaw.py
 - [ ] 手机关掉 Wi-Fi，用 4G/5G 访问 `http://<你的二级域名>.iepose.cn`
 - [ ] 节点小宝的访问密码 + 工作台口令，两层都能过
 - [ ] 提交一篇长文献分析 → **立刻关掉浏览器** → 10 分钟后重新打开 → 结果显示完成
-- [ ] 从局域网其他设备访问 `http://<NAS-IP>:18789` → 应该连不上（这是 WorkBench 之外的事，见下）
+- [ ] 从局域网其他设备访问 `http://<NAS-IP>:51879` → 应该连不上（这是 WorkBench 之外的事，见下）
 
-> 最后一条：你的 OpenClaw 是应用商店装的容器，它的 18789 目前发布在 NAS 宿主上，
+> 最后一条：你的 OpenClaw 是应用商店装的容器，它的 51879 目前发布在 NAS 宿主上，
 > 所以**局域网内可能是能访问到的**。公网侧只要你没给它做穿透映射，就是安全的。
 > 想把局域网也收紧，需要改 OpenClaw 容器的网络配置——**那是改现有容器，V1 不做**。
 > 如果你希望做，可以在确认 V1 跑通之后再说。
