@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>科研 &amp; 生活工作台</title>
+<!-- 内联 SVG 图标：省掉一次 favicon 请求，也不引入任何外部资源 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f6feb'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h9' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css?v=1.0.0">
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<div id="login" class="screen center hidden">
+  <form id="login-form" class="card login-card" autocomplete="off">
+    <h1 class="login-title">科研 &amp; 生活工作台</h1>
+    <p class="muted" id="login-hint">请输入访问口令</p>
+    <label class="field">
+      <span class="field-label">访问口令</span>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="btn primary block" id="login-btn">登录</button>
+    <p class="error hidden" id="login-error"></p>
+    <p class="muted small">本工作台运行在你自己的 NAS 上，数据不出本机。</p>
+  </form>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="app" class="screen hidden">
+  <header class="topbar">
+    <div class="brand">科研 &amp; 生活工作台</div>
+    <div class="topbar-right">
+      <span class="muted small" id="ai-state"></span>
+      <button type="button" class="btn ghost small" id="logout-btn">退出</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab active" data-tab="lit" role="tab">科研文献分析</button>
+    <button type="button" class="tab" data-tab="notes" role="tab">生活记录</button>
+    <button type="button" class="tab" data-tab="log" role="tab">任务日志</button>
+  </nav>
+
+  <main class="content">
+
+    <!-- ---------- 文献分析 ---------- -->
+    <section class="panel" id="panel-lit">
+      <div class="card">
+        <div class="row between">
+          <h2 class="h2">literature 目录</h2>
+          <button type="button" class="btn ghost small" id="refresh-files">刷新</button>
+        </div>
+        <p class="muted small" id="lit-summary">加载中…</p>
+        <div class="filelist" id="filelist"></div>
+        <div class="divider"></div>
+        <label class="checkline">
+          <input type="checkbox" id="force">
+          <span>强制重新分析（会覆盖已有的同名 Markdown）</span>
+        </label>
+        <div class="actions">
+          <button type="button" class="btn primary" id="analyze-selected" disabled>分析选中的 PDF</button>
+          <button type="button" class="btn" id="analyze-all">分析全部 PDF</button>
+        </div>
+        <p class="muted small">提示：提交后可以关掉页面，任务会在 NAS 上继续跑，稍后回来查看即可。</p>
+      </div>
+
+      <div class="card hidden" id="job-card">
+        <div class="row between">
+          <h2 class="h2" id="job-title">任务</h2>
+          <span class="badge" id="job-status">排队中</span>
+        </div>
+        <p class="job-stage" id="job-stage">—</p>
+        <div class="progress"><div class="progress-bar" id="job-bar"></div></div>
+        <p class="muted small" id="job-meta"></p>
+        <div class="error hidden" id="job-error"></div>
+        <div class="result-list hidden" id="job-result"></div>
+      </div>
+    </section>
+
+    <!-- ---------- 生活记录 ---------- -->
+    <section class="panel hidden" id="panel-notes">
+      <div class="card">
+        <h2 class="h2">记一笔</h2>
+        <p class="muted small">
+          待办、收支、随笔都写在这里，系统会自动判断属于哪一类，统一追加到
+          <code>life_notes/daily_notes.md</code>。
+        </p>
+        <textarea id="note-input" rows="3" placeholder="例如：今天买实验耗材花了 280 元。"></textarea>
+        <div class="actions">
+          <button type="button" class="btn primary" id="note-submit">提交记录</button>
+        </div>
+        <div class="note-result hidden" id="note-result"></div>
+      </div>
+
+      <div class="card">
+        <div class="row between">
+          <h2 class="h2">最近记录</h2>
+          <button type="button" class="btn ghost small" id="refresh-notes">刷新</button>
+        </div>
+        <pre class="preview" id="notes-preview">加载中…</pre>
+      </div>
+    </section>
+
+    <!-- ---------- 任务日志 ---------- -->
+    <section class="panel hidden" id="panel-log">
+      <div class="card">
+        <div class="row between">
+          <h2 class="h2">workbench_log.md</h2>
+          <button type="button" class="btn ghost small" id="refresh-log">刷新</button>
+        </div>
+        <p class="muted small">每次任务完成后自动追加。只记录任务事实，不记录文献正文。</p>
+        <pre class="preview" id="log-preview">加载中…</pre>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============ 结果查看器 ============ -->
+<div id="viewer" class="modal hidden">
+  <div class="modal-body">
+    <div class="modal-head">
+      <span id="viewer-title" class="mono small">—</span>
+      <button type="button" class="btn ghost small" id="viewer-close">关闭</button>
+    </div>
+    <pre class="preview tall" id="viewer-content"></pre>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/static/app.js?v=1.0.0"></script>
+</body>
+</html>

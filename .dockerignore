@@ -1,0 +1,37 @@
+# 构建上下文最小化：不仅是速度问题，更是"镜像里绝不能混进私人数据"的保证。
+# 构建时 Docker 看不到这些路径，即使误放文件也不会被打进镜像。
+
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+# 私人数据
+data/
+literature/
+life_notes/
+*.pdf
+daily_notes.md
+workbench_log.md
+
+# 运行期产物
+var/
+*.log
+logs/
+*.tar
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# 文档与编辑器（docs 不打进镜像，减小体积；需要时进容器看亦可）
+docs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

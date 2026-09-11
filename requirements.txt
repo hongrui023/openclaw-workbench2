@@ -1,0 +1,20 @@
+# openclaw-workbench · 运行时依赖
+#
+# 说明：这里使用「下限约束」而不是精确锁定，原因是首次构建必须在 ARM64 上
+# 一次性成功（极空间无法 docker build，构建失败要走一遍"构建→传输→导入"的慢循环）。
+# 首次在 NAS 上跑通后，如果你想要完全可复现的构建，把实际安装版本回填为 ==。
+#
+# 全部为纯 Python 或提供 manylinux aarch64 轮子，ARM64 上无需编译工具链。
+# 因此 Dockerfile 里不安装 gcc / build-essential。
+
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+httpx>=0.27,<1.0
+pymupdf>=1.24,<2.0
+tzdata>=2024.1
+
+# 明确不引入（V1 不需要，4GB 内存也吃紧）：
+#   python-multipart   —— 不提供文件上传
+#   pyyaml             —— 配置全部走环境变量
+#   redis / celery     —— 任务队列用进程内 asyncio
+#   jinja2             —— 前端是静态文件，无服务端模板

@@ -1,0 +1,87 @@
+# ============================================================
+# openclaw-workbench · docker-compose.yml
+#
+# 两种用途：
+#   1) 本地开发（Windows / Mac）：`docker compose up -d`，配合 .env 直接用
+#   2) NAS 参考配置：极空间 Docker 界面是按"页签"填的，请照着本文件逐项抄
+#      （见 docs/DEPLOY-NAS.md 的对照表）
+#
+# ★ 安全要点（本文件刻意【没有】出现的项）：
+#     - 没有 privileged
+#     - 没有 cap_add
+#     - 没有 /var/run/docker.sock 挂载（挂进去等于交出整台 NAS）
+#     - 没有 net=host
+#     - 只挂载 literature / life_notes / prompts 三处
+# ============================================================
+
+services:
+  workbench:
+    image: openclaw-workbench:1.0.0
+    container_name: openclaw-workbench
+    restart: unless-stopped
+
+    ports:
+      # 只暴露 8080 一个端口。OpenClaw 的 18789 绝不在这里出现。
+      - "8080:8080"
+
+    environment:
+      # ---- 认证（不填明文口令；用 scripts/make_password_hash.py 生成哈希）----
+      WORKBENCH_PASSWORD_HASH: "${WORKBENCH_PASSWORD_HASH}"
+      SESSION_DAYS: "${SESSION_DAYS:-30}"
+      LOGIN_LOCKOUT_MINUTES: "${LOGIN_LOCKOUT_MINUTES:-30}"
+
+      # ---- OpenClaw 适配层 ----
+      # 容器内的 127.0.0.1 指向容器自己，因此这里必须填【NAS 的局域网 IP】。
+      # 例：http://192.168.1.20:18789/v1  （结尾的 /v1 不能漏）
+      OPENCLAW_BASE_URL: "${OPENCLAW_BASE_URL:-http://host.docker.internal:18789/v1}"
+      OPENCLAW_TOKEN: "${OPENCLAW_TOKEN:-}"
+      OPENCLAW_MODEL: "${OPENCLAW_MODEL:-openclaw:main}"
+      # 可选：指向 OpenClaw 中的专用受限 agent（V1 部署完再建，见 docs/OPENCLAW-API.md）
+      OPENCLAW_AGENT_ID: "${OPENCLAW_AGENT_ID:-}"
+      OPENCLAW_TIMEOUT_SECONDS: "${OPENCLAW_TIMEOUT_SECONDS:-300}"
+
+      # ---- 长文献分段参数 ----
+      # 模型 contextWindow = 1,000,000，48000 字符/块留有充足余量，
+      # 且能显著减少调用次数。若后端模型换成小上下文模型，调低此值。
+      CHUNK_MAX_CHARS: "${CHUNK_MAX_CHARS:-48000}"
+      CHUNK_OVERLAP_CHARS: "${CHUNK_OVERLAP_CHARS:-800}"
+      REDUCE_FAN_IN: "${REDUCE_FAN_IN:-6}"
+      MAX_CHUNKS: "${MAX_CHUNKS:-60}"
+
+      # ---- 资源与限制 ----
+      MAX_PDF_MB: "${MAX_PDF_MB:-100}"
+      MAX_PDF_PAGES: "${MAX_PDF_PAGES:-500}"
+      MARKDOWN_VIEW_MAX_CHARS: "${MARKDOWN_VIEW_MAX_CHARS:-40000}"
+
+      # ---- 其他 ----
+      TZ: "${TZ:-Asia/Shanghai}"
+      WORKBENCH_LOG_LEVEL: "${WORKBENCH_LOG_LEVEL:-INFO}"
+
+    volumes:
+      # ① 文献目录：PDF 源 + 生成的同名 .md
+      - "${LITERATURE_DIR:-./literature}:/data/literature"
+      # ② 生活记录：daily_notes.md + workbench_log.md
+      - "${LIFE_NOTES_DIR:-./life_notes}:/data/life_notes"
+      # ③ 提示词（只读挂载）：改提示词只需编辑文件 + 重启容器，不用重建镜像
+      - "${PROMPTS_DIR:-./prompts}:/app/prompts:ro"
+
+    # 本地开发时让它能通过 host.docker.internal 访问宿主上的 OpenClaw
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # 4GB NAS 上与 OpenClaw 共享内存，给工作台设一个上限更安全
+    mem_limit: 1g
+
+    security_opt:
+      - no-new-privileges:true
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('WORKBENCH_PORT','8080')+'/api/health',timeout=3)"
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
