@@ -100,6 +100,12 @@ class Settings:
     log_level: str
     port: int
     ai_poll_hint_seconds: int
+    # 任务刚启动/活跃时的轮询间隔下限；反代穿透仍要 ≥5s，避免打爆节点小宝配额
+    ai_poll_hint_active_seconds: int
+    # 长跑任务跑了一阵后的轮询间隔；省流量
+    ai_poll_hint_idle_seconds: int
+    # 文献分析同篇内分块并发上限：默认 2，照顾 4GB 内存 + OpenClaw 抢资源
+    literature_concurrency: int
 
     @property
     def direct_mode_max_chars(self) -> int:
@@ -169,6 +175,9 @@ class Settings:
             log_level=_str("WORKBENCH_LOG_LEVEL", "INFO").upper(),
             port=_int("WORKBENCH_PORT", 8080, low=1, high=65535),
             ai_poll_hint_seconds=_int("POLL_HINT_SECONDS", 30, low=5, high=600),
+            ai_poll_hint_active_seconds=_int("POLL_HINT_ACTIVE_SECONDS", 5, low=3, high=60),
+            ai_poll_hint_idle_seconds=_int("POLL_HINT_IDLE_SECONDS", 30, low=10, high=600),
+            literature_concurrency=_int("LITERATURE_CONCURRENCY", 2, low=1, high=8),
         )
 
     def auth_ready(self) -> tuple[bool, str]:

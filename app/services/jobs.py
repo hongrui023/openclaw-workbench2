@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable
 
 from app.errors import ErrorCode, WorkbenchError
+from app.config import settings
 from app.obs import get_logger, now
 
 log = get_logger()
@@ -78,7 +79,12 @@ class Job:
         return self.status in (STATUS_QUEUED, STATUS_RUNNING)
 
     def to_poll(self) -> dict[str, Any]:
-        """轮询响应。字段刻意保持精简——每 30 秒一次请求，能被 gzip 压到 150 字节级。"""
+        """轮询响应。字段刻意保持精简——每 30 秒一次请求，能被 gzip 压到 150 字节级。
+
+        poll_hint：后端建议的下次轮询秒数。前端用它动态调整 setInterval——
+        任务刚启动时返回 active 间隔（用户能立刻看到第一条进度），
+        跑了一阵返回 idle 间隔（反代下省流量）。
+        """
         payload = {
             "id": self.id,
             "kind": self.kind,
@@ -90,6 +96,9 @@ class Job:
             "current": self.current,
             "elapsed": int(self.elapsed_seconds()),
         }
+        hint = self._poll_hint()
+        if hint is not None:
+            payload["poll_hint"] = hint
         if self.message:
             payload["message"] = self.message
         if self.error:
@@ -97,6 +106,21 @@ class Job:
         if self.status in (STATUS_SUCCEEDED, STATUS_FAILED):
             payload["finished_at"] = self.finished_at
         return payload
+
+    def _poll_hint(self) -> int | None:
+        """返回建议的下次轮询秒数；终态返回 None 让前端停轮询。
+
+        头 60 秒给短间隔（用户感知"任务在跑"），之后给长间隔（反代省流量）。
+        """
+        if self.status in (STATUS_SUCCEEDED, STATUS_FAILED):
+            return None
+        if self.status == STATUS_QUEUED:
+            return settings.ai_poll_hint_active_seconds
+        # running：按 elapsed 切档
+        elapsed = self.elapsed_seconds()
+        if elapsed < 60:
+            return settings.ai_poll_hint_active_seconds
+        return settings.ai_poll_hint_idle_seconds
 
     def to_detail(self) -> dict[str, Any]:
         payload = self.to_poll()

@@ -514,6 +514,101 @@ def test_summary_text() -> None:
 
 
 # ----------------------------------------------------------------------
+# C3. 性能优化：轮询自适应 + 文献分析分块并发
+# ----------------------------------------------------------------------
+def test_performance_optimizations() -> None:
+    """锁死 1.0.3 的两项提速改动（防回归）。
+
+    ① Job.to_poll() 返回 poll_hint：任务刚启动/活跃时给短间隔（用户立刻看到首条进度），
+       长跑时给长间隔（反代穿透下省流量）；终态不返回（前端据此停轮询）。
+    ② _run_chunked 同篇内分块并发：让 in-flight 峰值 ≥ literature_concurrency 的下限，
+       证明并发路径确实生效，而不是悄悄退化回了串行。
+    """
+    section("C3. 性能优化（轮询自适应 + 分块并发）")
+
+    from datetime import datetime, timedelta
+
+    from app.config import settings
+    from app.services.jobs import (
+        STATUS_FAILED,
+        STATUS_QUEUED,
+        STATUS_RUNNING,
+        STATUS_SUCCEEDED,
+        Job,
+    )
+
+    # ---- 子项 1：Job.to_poll 的 poll_hint ----
+    j_queued = Job(id="q", kind="literature", title="x", status=STATUS_QUEUED)
+    poll = j_queued.to_poll()
+    check("queued 任务 to_poll 含 poll_hint", "poll_hint" in poll)
+    check(
+        "queued 任务 poll_hint = active 间隔",
+        poll.get("poll_hint") == settings.ai_poll_hint_active_seconds,
+        f"got {poll.get('poll_hint')}",
+    )
+
+    j_running_old = Job(id="ro", kind="literature", title="x", status=STATUS_RUNNING)
+    j_running_old.started_at = (datetime.now() - timedelta(seconds=120)).strftime("%Y-%m-%d %H:%M:%S")
+    poll = j_running_old.to_poll()
+    check(
+        "running（>60s）poll_hint = idle 间隔",
+        poll.get("poll_hint") == settings.ai_poll_hint_idle_seconds,
+        f"got {poll.get('poll_hint')}",
+    )
+
+    j_running_new = Job(id="rn", kind="literature", title="x", status=STATUS_RUNNING)
+    poll = j_running_new.to_poll()
+    check(
+        "running（<60s）poll_hint = active 间隔",
+        poll.get("poll_hint") == settings.ai_poll_hint_active_seconds,
+        f"got {poll.get('poll_hint')}",
+    )
+
+    j_done = Job(id="d", kind="literature", title="x", status=STATUS_SUCCEEDED)
+    check("succeeded 任务 to_poll 不含 poll_hint（让前端停轮询）", "poll_hint" not in j_done.to_poll())
+    j_failed = Job(id="f", kind="literature", title="x", status=STATUS_FAILED)
+    check("failed 任务 to_poll 不含 poll_hint", "poll_hint" not in j_failed.to_poll())
+
+    # ---- 子项 2：_run_chunked 同篇内分块并发 ----
+    async def run_concurrency() -> None:
+        class ConcurrentTraceClient(FakeClient):
+            """继承 FakeClient，在 chat() 里追踪同时在跑的请求数。"""
+
+            def __init__(self, **kw: Any) -> None:
+                super().__init__(**kw)
+                self._lock = asyncio.Lock()
+                self.in_flight = 0
+                self.peak = 0
+                self.delay = 0.05  # 50ms 让并发现象可被观察到
+
+            async def chat(self, system: str, user: str, **kw: Any) -> str:
+                async with self._lock:
+                    self.in_flight += 1
+                    if self.in_flight > self.peak:
+                        self.peak = self.in_flight
+                try:
+                    await asyncio.sleep(self.delay)
+                    return await super().chat(system, user, **kw)
+                finally:
+                    async with self._lock:
+                        self.in_flight -= 1
+
+        # 12 页 × 1000 字符 = 12000 字符 > selftest CHUNK_MAX_CHARS(4000) → 走分段分析
+        # 切 3 块，默认 literature_concurrency=2 → 峰值 in-flight 应 = 2
+        make_test_pdf("concurrency.pdf", pages=12, chars_per_page=1000)
+        client = ConcurrentTraceClient()
+        outcome = await lit_service.analyze_pdf("concurrency.pdf", client=client)  # type: ignore[arg-type]
+        check("并发跑通：分析状态 OK", outcome.status == "ok", f"status={outcome.status} err={outcome.error_code}")
+        check(
+            f"并发跑通：峰值 in-flight ≥ 2（实际 {client.peak}）",
+            client.peak >= 2,
+            f"peak={client.peak}",
+        )
+
+    asyncio.run(run_concurrency())
+
+
+# ----------------------------------------------------------------------
 # D. 失败处理：任何失败都不能产出 .md
 # ----------------------------------------------------------------------
 def test_failures() -> None:
@@ -721,6 +816,7 @@ def main() -> int:
         test_notes()
         test_literature_pipeline()
         test_summary_text()
+        test_performance_optimizations()
         test_failures()
         test_http_layer()
     except Exception as exc:

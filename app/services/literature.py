@@ -326,30 +326,34 @@ async def _run_chunked(
         message=f"文献较长，按页边界切为 {total_chunks} 块，逐块分析中…",
     )
 
-    # ---- Level 1：逐块抽取要点（串行，照顾 4GB 内存与 OpenClaw 侧压力）----
+    # ---- Level 1：逐块抽取要点（同篇内并发，默认 2，环境变量 LITERATURE_CONCURRENCY 可调）----
     notes: list[tuple[str, str]] = []
     missing: list[tuple[str, str]] = []  # (块标签, 页码范围)
     done = 0
 
-    for chunk in chunks:
+    sem = asyncio.Semaphore(settings.literature_concurrency)
+
+    async def _extract_one(chunk: Chunk) -> tuple[str, str, str | None, tuple[WorkbenchError, str] | None]:
         label = chunk.label(total_chunks)
-        report(
-            stage="分段分析",
-            done=done,
-            total=total_steps,
-            current=doc.filename,
-            message=f"正在分析 {label}…",
-        )
-        try:
-            summary = await _extract_chunk(client, doc, chunk, total_chunks)
-            notes.append((label, summary))
-        except WorkbenchError as exc:
-            # 单块失败不立刻放弃：先记缺失，等全部块跑完再按比例判定
+        async with sem:
+            try:
+                text = await _extract_chunk(client, doc, chunk, total_chunks)
+                return (label, "ok", text, None)
+            except WorkbenchError as exc:
+                return (label, "err", None, (exc, chunk.page_range))
+
+    # 一次发出所有块，但受 semaphore 限流。gather 保持顺序 → 进度 done 按顺序计。
+    results = await asyncio.gather(*[_extract_one(chunk) for chunk in chunks])
+    for label, status, text, err_info in results:
+        if status == "ok":
+            notes.append((label, text))
+        else:
+            exc, pages = err_info  # type: ignore[misc]
             log.warning("分块失败：%s %s code=%s", doc.filename, label, exc.code.value)
-            missing.append((label, chunk.page_range))
+            missing.append((label, pages))
             report(failed=len(missing))
         done += 1
-        report(done=done)
+        report(done=done, message=f"已完成 {label}…")
 
     if not notes:
         raise WorkbenchError(
@@ -369,28 +373,41 @@ async def _run_chunked(
             detail=f"missing={len(missing)}/{total_chunks}",
         )
 
-    # ---- Level 2：分层归并 ----
+    # ---- Level 2：分层归并（每轮内并发，归并失败透传原始小结）----
     level = 1
     while len(notes) > settings.reduce_fan_in:
         groups = _group(notes, settings.reduce_fan_in)
+        group_labels = [
+            f"归并{level}-{i+1}（合并：{'、'.join(lbl for lbl, _ in g)}）"
+            for i, g in enumerate(groups, start=1)
+        ]
         report(
             stage="归并中间结果",
             message=f"第 {level} 轮归并：{len(notes)} 份小结 → {len(groups)} 组…",
         )
+
+        async def _merge_one(group_label: str, group: list[tuple[str, str]]) -> tuple[str, str | None]:
+            async with sem:
+                try:
+                    text = await _merge_group(client, doc, group_label, group)
+                    return ("merged", text)
+                except WorkbenchError as exc:
+                    log.warning("归并失败，改为透传原始小结：%s code=%s", group_label, exc.code.value)
+                    return ("passthrough", None)
+
+        merge_results = await asyncio.gather(
+            *[_merge_one(gl, g) for gl, g in zip(group_labels, groups)]
+        )
         merged: list[tuple[str, str]] = []
-        for index, group in enumerate(groups, start=1):
-            group_label = f"归并{level}-{index}（合并：{'、'.join(lbl for lbl, _ in group)}）"
-            try:
-                text = await _merge_group(client, doc, group_label, group)
-                merged.append((f"第 {level} 轮归并结果 {index}/{len(groups)}", text))
-            except WorkbenchError as exc:
-                # 归并失败不丢数据：原样把这一组的原始小结带进下一轮
-                log.warning("归并失败，改为透传原始小结：%s code=%s", group_label, exc.code.value)
+        for index, ((status, text), group) in enumerate(zip(merge_results, groups), start=1):
+            if status == "merged":
+                merged.append((f"第 {level} 轮归并结果 {index}/{len(groups)}", text or ""))
+            else:
                 merged.extend(group)
-            done += 1
-            report(done=done)
         notes = merged
         level += 1
+        done += len(groups)
+        report(done=done)
 
     # ---- Level 3：最终汇总 ----
     report(

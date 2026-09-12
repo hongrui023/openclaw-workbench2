@@ -316,6 +316,17 @@
     state.pollTicks += 1;
     api('/api/jobs/' + encodeURIComponent(jobId)).then(function (job) {
       if (!job) { return; }
+
+      // 后端可以建议下次轮询秒数：任务刚启动给短间隔（用户立刻看到首条进度），
+      // 跑了一阵改回长间隔（反代穿透下省流量）。收到 hint 就立即应用。
+      if (typeof job.poll_hint === 'number' && job.poll_hint > 0 && job.poll_hint !== state.pollSeconds) {
+        state.pollSeconds = job.poll_hint;
+        if (state.timer) {
+          clearInterval(state.timer);
+          state.timer = setInterval(function () { pollJob(jobId); }, state.pollSeconds * 1000);
+        }
+      }
+
       renderJob(job);
       if (job.status === 'succeeded' || job.status === 'failed') {
         stopPolling();
