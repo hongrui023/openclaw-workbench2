@@ -26,7 +26,7 @@
 互联网（手机 / 电脑）
       │  节点小宝内网穿透（唯一的公网入口）
       ▼
-工作台 Web 应用（8080）           ← 只有它对外
+工作台 Web 应用（宿主 8080 / 8081）  ← 只有它对外
       │
       ▼
 AI 服务（NAS 内部，不对公网暴露）
@@ -39,7 +39,7 @@ literature/   life_notes/         ← 只有这两个目录可读写
 
 | 边界 | 含义 |
 |---|---|
-| AI 服务不作公网入口 | 穿透只映射 8080，AI 服务的端口不做任何映射 |
+| AI 服务不作公网入口 | 穿透只映射工作台端口（宿主 8080，被占则用 8081），AI 服务的端口不做任何映射 |
 | 浏览器碰不到 AI 服务 | 没有代理端点，前端代码里不出现任何服务标识或令牌 |
 | 令牌只存在于后端 | `OPENCLAW_TOKEN` 只在容器环境变量和一处请求头里出现 |
 | 文件访问只有两个目录 | 容器只挂载两个卷，其他路径在内核层面就不存在 |
@@ -70,7 +70,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev_run.ps1      # Windows
 ### 先跑自检（不需要 AI 服务）
 
 ```bash
-python scripts/selftest.py        # 业务逻辑 + 权限逻辑 + HTTP 层，共 97 项检查
+python scripts/selftest.py        # 业务逻辑 + 权限逻辑 + HTTP 层，共 110 项检查
 python scripts/smoke_http.py      # 真的起一个 uvicorn，检查对外行为与响应头
 python scripts/check_deploy.py    # Dockerfile / ARM64 依赖轮子 / compose / 端口暴露
 python scripts/secret_scan.py     # 提交前扫描：机密、私人数据、危险调用
@@ -96,11 +96,11 @@ python scripts/secret_scan.py     # 提交前扫描：机密、私人数据、�
 ```bash
 # 路线 A（推荐，本机不用装 Docker）：推到 GitHub，Actions 自动构建
 #   → 进仓库 Actions → build-arm64 → 下载 Artifacts
-#   → 解压得到 openclaw-workbench-1.0.0-arm64.tar
+#   → 解压得到 openclaw-workbench-1.0.2-arm64.tar
 
 # 路线 B：在自己的电脑上交叉构建（需要 Docker Desktop）
-powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.0
-#   → 得到 openclaw-workbench-1.0.0.tar
+powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.2
+#   → 得到 openclaw-workbench-1.0.2.tar
 
 # 无论哪条路线，接下来都一样：
 # → 上传到极空间 → Docker → 镜像 → 导入镜像

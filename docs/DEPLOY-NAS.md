@@ -15,7 +15,7 @@
 见 README 的"快速开始"。跑一遍自检：
 
 ```bash
-python scripts/selftest.py       # 应输出 97 项通过、0 项跳过
+python scripts/selftest.py       # 应输出 110 项通过、0 项跳过
 python scripts/smoke_http.py     # 应输出"全部通过"
 python scripts/check_deploy.py   # 静态检查 Dockerfile / ARM64 轮子 / compose / 端口
 ```
@@ -61,49 +61,58 @@ python -c "import secrets;print(secrets.token_urlsafe(24))"
 也可以进仓库页面 → **Actions** → 左侧 `build-arm64` → **Run workflow**（可填版本号）。
 
 **怎么拿产物**：Actions → 点进那次运行 → 页面底部 **Artifacts** → 下载
-`openclaw-workbench-arm64-1.0.0`，解压得到一个压缩包：
+`openclaw-workbench-arm64-1.0.2`，解压得到一个压缩包：
 
 ```
-openclaw-workbench-1.0.0-arm64.tar.gz          ← 就是它，下一步导入极空间
-openclaw-workbench-1.0.0-arm64.tar.gz.sha256   ← 校验和
+openclaw-workbench-1.0.2-arm64.tar.gz          ← 就是它，下一步导入极空间
+openclaw-workbench-1.0.2-arm64.tar.gz.sha256   ← 校验和
 ```
 
 **传输后先核对完整性**（可选但建议，几百 MB 的文件走网络容易缺字节）：
 
 ```powershell
 # Windows PowerShell：先算出来
-Get-FileHash .\openclaw-workbench-1.0.0-arm64.tar.gz -Algorithm SHA256
+Get-FileHash .\openclaw-workbench-1.0.2-arm64.tar.gz -Algorithm SHA256
 # 再和 .sha256 文件里的那串比对，一致才导入
 ```
 
 解压出 `.tar` 后再进阶段 3。工作流产出的是**非压缩 tar 再 gzip**，
-所以解压一次就得到极空间要的 `openclaw-workbench-1.0.0-arm64.tar`。
+所以解压一次就得到极空间要的 `openclaw-workbench-1.0.2-arm64.tar`。
 
 > 私有仓库的 Actions 有免费额度（约 2000 分钟/月、500 MB 制品存储）。
-> 一次构建大约 10–15 分钟。如果觉得吃紧，把仓库改成 public 即可获得
-> 不限量的 Actions 分钟数与制品存储（本仓库按设计不含任何私人数据）。
+> **云端构建实测一次约 2 分 30 秒**（不是十几分钟），代价很小。
+> 如果觉得吃紧，把仓库改成 public 即可获得不限量的 Actions 分钟数与制品存储
+> （本仓库按设计不含任何私人数据）。
+
+> ⚠️ **导出格式有坑，工作流里已经处理好了，别自己改**：
+> buildx 的 `--output type=docker,dest=` 在新版 BuildKit 下产出的是
+> **纯 OCI 归档（没有 `repositories` 文件）**，极空间可能导入失败。
+> 所以工作流是 `docker load` 之后再 `docker save` 重新导出。
+> 另外 Docker 27+ 的 `docker save` 会产出"混合格式"（既有 `manifest.json` +
+> `repositories`，也带 `oci-layout` / `index.json`）——**这是正常的**，
+> 旧版 Docker 只读 `manifest.json`，不要误判为错误。
 
 ### 路线 B：在自己的电脑上交叉构建（需要 Docker Desktop）
 
 ```powershell
 # Windows
-powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.0
+powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.2
 ```
 
 ```bash
 # macOS / Linux / Git Bash
-bash scripts/build-arm64.sh 1.0.0
+bash scripts/build-arm64.sh 1.0.2
 ```
 
 脚本做四件事：检查 Docker 可用 → 准备 buildx builder → `--platform linux/arm64/v8` 构建 →
 `docker save` 导出 tar。
 
-**应该看到**：最后打印出 `openclaw-workbench-1.0.0.tar` 的路径和大小（大约 150–250 MB）。
+**应该看到**：最后打印出 `openclaw-workbench-1.0.2.tar` 的路径和大小（大约 150–250 MB）。
 
 > `--platform linux/arm64/v8` 是硬性要求。漏了的话镜像导入极空间后跑不起来。
 > 两条路线都已经写死了，不用你操心。
 
-> **两条路线导入后镜像名是一样的**：都是 `openclaw-workbench:1.0.0`，
+> **两条路线导入后镜像名是一样的**：都是 `openclaw-workbench:1.0.2`，
 > 只有外层文件名不同（路线 A 多一个 `-arm64` 后缀）。阶段 4 里选的就是这个名字。
 
 ---
@@ -112,7 +121,9 @@ bash scripts/build-arm64.sh 1.0.0
 
 1. 用极空间客户端把这个 tar 上传到任意存储路径（临时放一下就行）
 2. 极空间 → **Docker** → **镜像** → **导入镜像** → **从极空间导入** → 选择该 tar
-3. 稍等片刻，镜像列表里出现 `openclaw-workbench:1.0.0`
+3. 稍等片刻，镜像列表里出现 `openclaw-workbench:1.0.2`
+
+> 导入只认 `.tar`，不认 zip / tar.gz。
 
 > tar 里只有程序代码和依赖，**不含任何私人数据和令牌**，可以放心传。
 
@@ -174,9 +185,17 @@ Docker → **容器** → **添加** → 选择刚导入的镜像。
 
 | 本地端口 | 容器端口 | 类型 |
 |---|---|---|
-| `8080` | `8080` | TCP |
+| `8080`（被占就改 `8081`） | `8080` | TCP |
 
-如果 8080 在 NAS 上已被占用，改左边的本地端口（容器端口保持 8080）。
+**容器端口永远是 `8080`**（应用写死监听它），只能改左边"本地端口"这一列。
+
+> ⚠️ 极空间 Z2 Pro 上 **8080 常常已被占用**（实测返回 `502 Bad Gateway`，
+> 说明有个反向代理在监听，只是后端没起来）。硬填 8080 会报：
+> `Error starting userland proxy: listen tcp4 0.0.0.0:8080: bind: address already in use`
+>
+> 先 `curl -I http://<NAS-IP>:8080` 探一下：返回 `curl: (7)` 连接失败＝空闲可用；
+> 返回 502/200 ＝ 已被占，换成 8081（实测 8081 / 8088 / 8888 / 9000 / 18080 均空闲）。
+> 已建好的容器不用删，极空间支持「无损编辑」直接改本地端口。
 
 ### 环境（关键，别填错）
 
@@ -237,7 +256,7 @@ NAS 总共 4 GB，还要和 OpenClaw 共享，设个上限更安全。
 启动容器，打开容器日志。**应该看到**：
 
 ```
-openclaw-workbench v1.0.0 启动中…
+openclaw-workbench v1.0.2 启动中…
 AI 服务地址：http://192.168.1.77:51879/v1/chat/completions
 AI 服务令牌：已配置（长度 64）
 模型标识：openclaw/default
@@ -257,7 +276,10 @@ AI 服务令牌：已配置（长度 64）
 
 ### 局域网验证清单
 
-- [ ] `http://<NAS-IP>:8080` 能打开登录页
+> 下面这份清单里的 `<端口>` 就是阶段 4 里你填的**本地端口**（默认 8080，被占则 8081）。
+> 极空间 Z2 Pro 上默认按 **8081** 走。
+
+- [ ] `http://<NAS-IP>:<端口>` 能打开登录页
 - [ ] 用你设的口令能登录
 - [ ] 故意输错口令 3 次 → 响应明显变慢（限速生效）
 - [ ] 「生活记录」写一条 `今天买实验耗材花了 280 元。` → 提示"已识别为收支记账"
@@ -330,15 +352,24 @@ docker exec -it workbench python /app/scripts/check_openclaw.py
 |---|---|
 | 服务类型 | **http 服务**（不要选 TCP） |
 | 提供访问的设备 | 你的极空间 NAS |
-| 内网地址 | `http://127.0.0.1:8080`（节点小宝在 NAS 宿主上跑，可以用回环） |
+| 内网地址 | `http://127.0.0.1:<本地端口>`（节点小宝在 NAS 宿主上跑，可以用回环） |
 | 外网域名 | 自定义二级域名，如 `owb-xxxx` |
 | **访问密码** | **开启**，设一个强口令 |
 | 访问规则 | 需要密码，不公开 |
 
-**只有这一条映射，只指向 8080。绝不添加指向 51879 的任何映射。**
+**只有这一条映射，只指向工作台的本地端口。绝不添加指向 51879 的任何映射。**
 
-> 如果 `127.0.0.1:8080` 连不通，改填 NAS 的局域网 IP `http://192.168.1.77:8080`。
-> 这一项需要你实际点一次才知道。
+> 如果 `127.0.0.1:<本地端口>` 连不通，改填 NAS 的局域网 IP
+> `http://192.168.1.77:<本地端口>`。这一项需要你实际点一次才知道。
+>
+> 极空间 Z2 Pro 上本地端口通常是 **8081**（宿主 8080 被反代占用）：
+> 内网地址填 `http://127.0.0.1:8081`。
+
+### ⚠️ 穿透之前，再去确认一次 51879 没被映射出去
+
+节点小宝的映射列表里**只能有工作台这一条**。OpenClaw 的 51879 一旦被映射，
+等于把网关管理员凭据挂到公网上——它的 `allowedOrigins` 是 `["*"]`，谁都能连。
+另外也别映射 NAS 的管理端口（5055）。
 
 ### 外网验证清单
 
@@ -375,7 +406,7 @@ docker exec -it workbench python /app/scripts/check_openclaw.py
 | 改了什么 | 做什么 |
 |---|---|
 | 只改提示词 | 在极空间文件管理器里编辑 → 重启容器 |
-| 改了代码 | `build-arm64.ps1 -Version 1.0.1` → 上传 → 导入 → 用**同一份挂载和环境变量**重建容器 |
+| 改了代码 | `build-arm64.ps1 -Version 1.0.3` → 上传 → 导入 → 用**同一份挂载和环境变量**重建容器 |
 
 重建前建议把容器的配置页截图存一下，照填不出错。挂载和环境变量只需配一次。
 
@@ -404,11 +435,11 @@ docker exec -it workbench python /app/scripts/check_openclaw.py
 1. **放开目录权限**：在极空间里把 `literature` 和 `life_notes` 设为可被其他用户写入
 2. **换 uid 重建镜像**（推荐做法，不是临时方案）：
    ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.1 -BuildUid 1026
+   powershell -ExecutionPolicy Bypass -File scripts\build-arm64.ps1 -Version 1.0.3 -BuildUid 1026
    ```
    把 1026 换成极空间上和你账号一致的 uid
 3. **用 root 跑**（最省事，安全性最差）：
    ```powershell
-   scripts\build-arm64.ps1 -Version 1.0.1 -BuildUid 0
+   scripts\build-arm64.ps1 -Version 1.0.3 -BuildUid 0
    ```
    root 容器如果被攻破，影响面更大。只有在 1、2 都不可行时才考虑。
