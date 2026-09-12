@@ -184,6 +184,38 @@ jobs:
 
           docker rm -f owb-smoke
 
+      # ---------------------------------------------------------
+      # buildx 的 --output type=docker 在新版 BuildKit 下产出的是 **OCI 归档**
+      # （含 oci-layout / index.json，没有 repositories）。
+      # `docker load` 认它，但极空间 Z2 Pro 的 Docker 管理器版本可能不认。
+      # 所以这里用 `docker save` 重新导出成**传统格式**
+      # （manifest.json + repositories），这是所有 Docker 版本都吃的格式。
+      # ---------------------------------------------------------
+      - name: 重新导出为传统 docker save 格式（极空间导入兼容性最好）
+        run: |
+          set -euo pipefail
+          TAR="${{ steps.ver.outputs.tar }}"
+          IMG="${{ steps.ver.outputs.local }}"
+
+          # 删掉 buildx 产出的 OCI 归档，换成 docker save 的传统格式
+          rm -f "dist/${TAR}"
+          docker save -o "dist/${TAR}" "${IMG}"
+
+          echo "--- 格式自检 ---"
+          tar -tf "dist/${TAR}" > /tmp/entries.txt
+          grep -q '^manifest\.json$' /tmp/entries.txt \
+            || { echo "::error::缺 manifest.json，不是合法的镜像 tar"; exit 1; }
+          grep -q '^repositories$' /tmp/entries.txt \
+            || { echo "::error::缺 repositories —— 仍是 OCI 归档格式，极空间可能导入失败"; exit 1; }
+          if grep -q '^oci-layout$' /tmp/entries.txt; then
+            echo "::error::意外混入了 oci-layout，格式不纯"
+            exit 1
+          fi
+          echo "格式自检通过：manifest.json + repositories 齐全，无 oci-layout"
+          echo "--- repositories 内容 ---"
+          tar -xOf "dist/${TAR}" repositories
+          ls -lh dist
+
       - name: 压缩并生成校验和
         run: |
           set -euo pipefail
