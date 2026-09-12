@@ -207,13 +207,20 @@ jobs:
             || { echo "::error::缺 manifest.json，不是合法的镜像 tar"; exit 1; }
           grep -q '^repositories$' /tmp/entries.txt \
             || { echo "::error::缺 repositories —— 仍是 OCI 归档格式，极空间可能导入失败"; exit 1; }
+          # 注意：Docker 27+ 的 docker save 产出的是「混合格式」——
+          # 既有传统的 manifest.json + repositories，也额外附带 OCI 的
+          # index.json / oci-layout（为了让两个生态都能读）。
+          # 旧版 Docker 只读 manifest.json，会忽略 OCI 那部分，所以无害。
+          # 关键是 **repositories 必须在**（buildx 的纯 OCI 归档就没有它）。
           if grep -q '^oci-layout$' /tmp/entries.txt; then
-            echo "::error::意外混入了 oci-layout，格式不纯"
-            exit 1
+            echo "::notice::该 tar 同时带 OCI 布局（Docker 27+ 的 docker save 默认行为），"
+            echo "::notice::旧版 Docker 读 manifest.json，不受影响。"
           fi
-          echo "格式自检通过：manifest.json + repositories 齐全，无 oci-layout"
+          echo "格式自检通过：manifest.json + repositories 齐全"
           echo "--- repositories 内容 ---"
           tar -xOf "dist/${TAR}" repositories
+          echo "--- 顶层条目 ---"
+          grep -vE '^[0-9a-f]{64}/' /tmp/entries.txt
           ls -lh dist
 
       - name: 压缩并生成校验和
