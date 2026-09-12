@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from app.config import settings
 from app.errors import ErrorCode, WorkbenchError
 from app.models import AnalyzeRequest
-from app.obs import get_logger
+from app.obs import get_logger, human_duration
 from app.security.auth import require_session
 from app.security.paths import ROOT_LITERATURE, guard
 from app.services import literature, task_log
@@ -84,7 +84,11 @@ async def analyze(payload: AnalyzeRequest) -> dict[str, object]:
             f"目标：{'、'.join(targets[:8])}{'…' if len(targets) > 8 else ''}",
             f"结果：{summary.headline()}",
             f"AI 调用：{summary.calls} 次",
-            f"耗时：{summary.elapsed_label}",
+            # 注意：elapsed_label 只是 to_dict() 结果里的一个键，
+            # BatchSummary 上并没有同名属性——早期版本在这里误写成
+            # summary.elapsed_label，导致每次分析写完文件后抛 AttributeError，
+            # 任务被兜底判成"内部错误"（文件其实已经生成好了）。
+            f"耗时：{human_duration(summary.elapsed)}",
         ]
         if summary.modes:
             unique = sorted(set(summary.modes))

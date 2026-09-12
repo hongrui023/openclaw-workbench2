@@ -472,6 +472,48 @@ def test_literature_pipeline() -> None:
 
 
 # ----------------------------------------------------------------------
+# C2. 结果文案组装（回归：曾经把 to_dict 的键当成属性用）
+# ----------------------------------------------------------------------
+def test_summary_text() -> None:
+    """曾经踩过的坑：
+
+    api/literature.py 里写过 `summary.elapsed_label`，但 `elapsed_label` 只是
+    `BatchSummary.to_dict()` 返回的**字典键**，类上并没有这个属性。
+    结果是每篇文献分析完（文件已成功写入）之后抛 AttributeError，
+    被任务层兜底成"工作台内部错误"——用户看到任务失败，文件却已经生成了。
+
+    这里锁死两件事：① 真实存在的属性名 ② 文案组装用的调用方式本身能跑通。
+    """
+    section("C2. 批量结果文案（防 to_dict 键误当属性）")
+
+    from app.obs import human_duration
+
+    s = lit_service.BatchSummary(total=2, ok=["a.pdf"], skipped=["b.pdf"], elapsed=125.0)
+
+    for attr in ("total", "ok", "skipped", "failed", "modes", "calls", "missing", "elapsed"):
+        check(f"BatchSummary 有属性 {attr}", hasattr(s, attr))
+
+    check("BatchSummary 没有 elapsed_label 属性", not hasattr(s, "elapsed_label"))
+
+    d = s.to_dict()
+    check("to_dict 里有 elapsed_label", "elapsed_label" in d)
+    check("elapsed_label 是字符串", isinstance(d["elapsed_label"], str))
+
+    # api/literature.py 的 runner 就是这几行，必须能不抛异常地跑完
+    try:
+        lines = [
+            f"模式：批量（全部） · 共 {s.total} 篇",
+            f"结果：{s.headline()}",
+            f"AI 调用：{s.calls} 次",
+            f"耗时：{human_duration(s.elapsed)}",
+        ]
+        check("结果文案组装不抛异常", True)
+        check("文案里含耗时", any("耗时：" in line for line in lines))
+    except Exception as exc:  # noqa: BLE001
+        check("结果文案组装不抛异常", False, f"{type(exc).__name__}: {exc}")
+
+
+# ----------------------------------------------------------------------
 # D. 失败处理：任何失败都不能产出 .md
 # ----------------------------------------------------------------------
 def test_failures() -> None:
@@ -678,6 +720,7 @@ def main() -> int:
         test_path_guard()
         test_notes()
         test_literature_pipeline()
+        test_summary_text()
         test_failures()
         test_http_layer()
     except Exception as exc:
