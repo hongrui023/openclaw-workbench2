@@ -14,6 +14,12 @@ from pathlib import Path
 
 _TRUE = {"1", "true", "yes", "on", "y"}
 
+# 未设置 OPENCLAW_BASE_URL 时用的占位默认值。
+# 它刻意指向一个谁都不会在那儿的地址（容器自己的 127.0.0.1）——
+# 而不是某个"猜一个可能的 NAS 地址"。因为猜错的地址会静默连到别的服务或长时间超时，
+# 而指向自己的死地址至少是「立刻失败 + 启动时告警」，排查时一眼就能认出来。
+PLACEHOLDER_OPENCLAW_BASE_URL = "http://127.0.0.1:18789/v1"
+
 
 def _str(name: str, default: str = "") -> str:
     value = os.environ.get(name)
@@ -108,6 +114,16 @@ class Settings:
             base = f"{base}/v1"
         return f"{base}/chat/completions"
 
+    @property
+    def openclaw_base_url_unset(self) -> bool:
+        """OPENCLAW_BASE_URL 仍是占位默认值 —— 即部署时漏填了这一项。
+
+        为什么要单独识别它：这个值是工作台唯一真正对外发请求的地址，
+        填错或漏填的表现是「点分析 → 转圈 → 报错」，而极空间没有 SSH，
+        排查成本极高。启动时先喊出来，比事后翻日志强得多。
+        """
+        return self.openclaw_base_url.rstrip("/") == PLACEHOLDER_OPENCLAW_BASE_URL.rstrip("/")
+
     @classmethod
     def from_env(cls) -> "Settings":
         app_root = _resolve(_str("WORKBENCH_APP_ROOT"), Path("/app"))
@@ -132,7 +148,7 @@ class Settings:
             dev_password=_str("WORKBENCH_PASSWORD"),
             session_days=_int("SESSION_DAYS", 30, low=1, high=365),
             lockout_minutes=_int("LOGIN_LOCKOUT_MINUTES", 30, low=1, high=1440),
-            openclaw_base_url=_str("OPENCLAW_BASE_URL", "http://127.0.0.1:18789/v1"),
+            openclaw_base_url=_str("OPENCLAW_BASE_URL", PLACEHOLDER_OPENCLAW_BASE_URL),
             openclaw_token=_str("OPENCLAW_TOKEN"),
             # ★ model 字段在 OpenClaw 里是【agent 目标】，不是后端 provider 模型 id。
             #   官方文档点名 openclaw/default 为"稳定别名"——即使默认 agent 改名也不会失效。

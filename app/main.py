@@ -70,6 +70,12 @@ def _log_startup() -> None:
     if settings.dev_mode:
         log.warning("开发模式已启用（WORKBENCH_DEV=1）——不要在 NAS 上使用此模式")
 
+    if settings.openclaw_base_url_unset:
+        log.error("★ OPENCLAW_BASE_URL 没有设置，仍在用占位默认值 —— AI 功能必然连不上。")
+        log.error("  解决：在容器环境变量里填 http://<NAS 局域网 IP>:<宿主映射端口>/v1")
+        log.error("        末尾的 /v1 不能漏；要用宿主映射端口，不是容器端口。")
+        log.error("  示例见 docs/DEPLOY-NAS.md 的「环境变量」一节。")
+
     problem = auth.config_problem()
     if problem:
         log.error("★ 登录口令未配置（%s）：所有登录都会被拒绝。", problem)
